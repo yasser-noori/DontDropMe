@@ -21,6 +21,12 @@ npm run preview
 
 ## Play and controls
 
+### Tailscale access
+
+The production build is available within your tailnet at **https://desktop-p7qh231.tail214b5d.ts.net/**. Keep this Windows PC awake and connected to Tailscale. The HTTPS endpoint proxies to the production preview server on `127.0.0.1:4173`; its host allowlist is in `vite.config.ts`.
+
+Tailscale Serve configuration persists, but after restarting Windows, start the local server with `npm run preview`. After changing the game, run `npm run build` to update the served files. To disable access, run `tailscale serve --https=443 off` (the executable is in `C:\Program Files\Tailscale` if it is not on PATH). Access is restricted to your tailnet; no public Funnel is configured.
+
 - Move the paddle beside the right edge of the left platform, roughly level with its top. Frank automatically boards.
 - Carry him across the gap. Bring the paddle beside the left edge of the right platform and level with its top. Frank walks off and into the portal.
 - In Mouse Mode, the cursor is the paddle target. In Camera Mode, show one palm to the webcam; the paddle sits 18 logical pixels above its center.
