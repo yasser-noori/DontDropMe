@@ -14,6 +14,16 @@ const WORDS = [
 ];
 const COLORS = [0xffc66d, 0xb6a0ff, 0x89eac7, 0xff9fb7];
 const ALIASES = ['Comet', 'Mochi', 'Pebble', 'Orbit', 'Sprout', 'Nimbus', 'Pip', 'Clover'];
+const DEMO_CLUES: Record<string, string[]> = {
+  AIRPORT: ['departure board', 'rolling luggage', 'security line'],
+  POPCORN: ['movie night', 'buttery fingers', 'crunchy handful'],
+  UMBRELLA: ['rainy sidewalk', 'folding handle', 'staying dry'],
+  LIBRARY: ['quiet shelves', 'borrowed stories', 'reading corner'],
+  PENGUIN: ['icy shoreline', 'formal feathers', 'awkward waddle'],
+  PANCAKE: ['breakfast stack', 'maple drizzle', 'flipped batter'],
+  COMPASS: ['magnetic needle', 'finding north', 'lost hiker'],
+  OCTOPUS: ['suction cups', 'inky water', 'clever tentacles'],
+};
 const token = () => randomBytes(24).toString('base64url');
 export const normalize = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
 function clean(value: unknown, max: number) {
@@ -73,7 +83,9 @@ export class Room {
   joinQueue = new Map<string, string>();
   private seen = new Set<string>();
   private lastTick = Date.now();
-  constructor(public mode: 'local' | 'twitch' = 'local') {
+  private demoAt = 0;
+  constructor(public mode: 'local' | 'twitch' = 'local', public demo = false) {
+    this.require(!demo || mode === 'local', 'Demo players are only available in local rehearsal.');
     if (mode === 'local') ['Frank', 'Sarah', 'Mia', 'Alex'].forEach(name => this.addPlayer(name));
   }
   addPlayer(name: string, twitchId?: string) {
@@ -89,7 +101,7 @@ export class Room {
   publicState(): PublicState {
     const reveal = this.phase === 'REVEAL' || this.phase === 'RESULTS';
     const cluesVisible = !['LOBBY', 'ROLE_DELIVERY', 'CLUE_SUBMISSION'].includes(this.phase);
-    return { code: this.code, version: this.version, mode: this.mode, phase: this.phase, round: this.round, category: this.phase === 'LOBBY' ? undefined : this.category,
+    return { code: this.code, version: this.version, mode: this.mode, demo: this.demo, phase: this.phase, round: this.round, category: this.phase === 'LOBBY' ? undefined : this.category,
       players: (this.phase === 'LOBBY' ? this.players : this.active()).map(p => ({ id: p.id, name: p.alias, color: p.color, connected: p.connected, ready: p.ready, selected: p.selected, clue: cluesVisible ? p.clue : undefined, answer: cluesVisible ? p.answer : undefined, delivered: p.delivered, outcome: p.outcome, position: this.positions.get(p.id), votes: { ...p.votes } })),
       current: this.current, clueCount: this.active().filter(p => p.locked).length, paused: this.paused, hostConnected: this.hostConnected, timer: Math.ceil(this.timer), votingOpen: this.votingOpen, twitchConnected: this.twitchConnected,
       saved: this.active().filter(p => p.outcome === 'SAVE').length, dropped: this.active().filter(p => p.outcome === 'DROP').length, armed: this.armed,
@@ -104,7 +116,7 @@ export class Room {
       ring: isImpostor && this.phase === 'ESCAPE' ? { ...this.ring } : undefined };
   }
   hostState(base: string): HostState {
-    return { links: this.mode === 'local' && this.phase === 'LOBBY' ? this.players.map(p => ({ name: p.name, url: `${base}/?room=${this.code}#player=${p.token}` })) : undefined,
+    return { links: this.mode === 'local' && !this.demo && this.phase === 'LOBBY' ? this.players.map(p => ({ name: p.name, url: `${base}/?room=${this.code}#player=${p.token}` })) : undefined,
       joinUrl: `${base}/?join=${this.code}`, broadcastUrl: `${base}/?broadcast=${this.code}`,
       candidates: (this.phase === 'LOBBY' ? this.players : this.active()).map(p => ({ id: p.id, name: p.alias, connected: p.connected, ready: p.ready, selected: p.selected })) };
   }
@@ -158,7 +170,8 @@ export class Room {
         this.phase = 'DECISIONS'; this.current = undefined; this.timer = 0;
       } else throw Error('Player action not permitted.');
     } else {
-      if (type === 'pause') { this.paused = !this.paused; }
+      if (type === 'demo') { this.require(this.mode === 'local' && this.phase === 'LOBBY' && !this.players.some(p => p.connected), 'Start demo in an empty local lobby.'); this.demo = true; this.demoAt = 0; }
+      else if (type === 'pause') { this.paused = !this.paused; }
       else if (type === 'extend') { this.require(['CLUE_SUBMISSION', 'INTERROGATION', 'IMPOSTOR_GUESS'].includes(this.phase)); this.timer += 15; this.paused = false; }
       else if (type === 'selectLobby') {
         this.require(this.phase === 'LOBBY'); const p = this.players.find(p => p.id === d.player); this.require(p); p.selected = !p.selected;
@@ -241,9 +254,40 @@ export class Room {
     this.voteMap.set(userId, choice); const p = this.currentPlayer()!;
     p.votes = { trust: [...this.voteMap.values()].filter(v => v === 'trust').length, drop: [...this.voteMap.values()].filter(v => v === 'drop').length }; this.version++;
   }
+  /** Explicit synthetic rehearsal participants use the same validated actions as real players. */
+  private demoStep(now: number) {
+    if (this.phase === 'ESCAPE' && this.escape === 'active') {
+      const player = this.currentPlayer();
+      if (player && this.frame && this.tracking && now - this.frameAt < 700) {
+        const dx = this.ring.x - this.frame.position.x, dy = this.ring.y + 18 - this.frame.position.y;
+        this.control(player, { x: Math.abs(dx) > 4 ? Math.sign(dx) : 0, y: Math.abs(dy) > 4 ? Math.sign(dy) : 0, dash: !this.dashUsed && Math.hypot(dx, dy) > 100 });
+      }
+      return;
+    }
+    if (now < this.demoAt) return;
+    this.demoAt = now + 1000;
+    const act = (actor: 'host' | Player, type: string, data?: Record<string, unknown>) => this.act(actor, { id: randomUUID(), version: this.version, type, data });
+    if (this.phase === 'LOBBY') {
+      this.players.forEach(p => { p.selected = true; p.connected = true; p.ready = true; }); act('host', 'start');
+    } else if (this.phase === 'ROLE_DELIVERY') act('host', 'clues');
+    else if (this.phase === 'CLUE_SUBMISSION') {
+      const player = this.active().find(p => !p.locked);
+      if (player) {
+        const informed = this.active().filter(p => p.key !== this.impostorKey);
+        const clue = player.key === this.impostorKey ? 'general impression' : DEMO_CLUES[this.word.word][informed.indexOf(player)];
+        act(player, 'lock', { text: clue });
+      }
+    } else if (this.phase === 'INTERROGATION') {
+      const player = this.currentPlayer()!;
+      if (!player.answer) act(player, 'answer', { text: player.key === this.impostorKey ? 'I know the general category, but the specifics are a blur.' : `I was thinking of ${player.clue}, especially the feeling around it.` });
+      else if (player.delivered) act('host', 'next');
+      else if (!this.armed) act('host', 'arm', { zone: 'WAIT' });
+    } else if (this.phase === 'IMPOSTOR_GUESS') act(this.players.find(p => p.key === this.impostorKey)!, 'guess', { text: '' });
+  }
   tick(now = Date.now()) {
     const dt = Math.min(.25, Math.max(0, (now - this.lastTick) / 1000)); this.lastTick = now;
     if (!this.hostConnected || this.paused) return;
+    if (this.demo) this.demoStep(now);
     if (this.phase === 'ESCAPE') {
       if (!this.tracking || now - this.frameAt > 700) { this.escapePaused += dt; this.input = { x: 0, y: 0, dash: false }; return; }
       this.escapePaused = 0;

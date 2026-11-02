@@ -151,3 +151,39 @@ describe('fixed S maze', () => {
     expect(moveConstrained(from, target, 12, 35, 0).x).toBeCloseTo(850);
   });
 });
+
+describe('explicit solo demo', () => {
+  function step(r: Room) { vi.setSystemTime(Date.now() + 1100); r.tick(); }
+  it('readies four simulated players, locks clues, answers turns and passes without player pages', () => {
+    const r = new Room('local', true); r.hostConnected = true;
+    step(r); expect(r.phase).toBe('ROLE_DELIVERY'); expect(r.active()).toHaveLength(4);
+    expect(r.active().every(p => p.ready && p.connected)).toBe(true);
+    step(r); for (let i = 0; i < 4; i++) step(r);
+    expect(r.phase).toBe('INTERROGATION'); expect(r.publicState().clueCount).toBe(4);
+    expect(r.active().every(p => p.locked && p.clue.length <= 32)).toBe(true);
+    for (let i = 0; i < 4; i++) {
+      step(r); expect(r.currentPlayer()!.answer).not.toBe(''); step(r); expect(r.armed).toBe('WAIT');
+      r.acceptFrame({ id: r.current!, position: ZONES.WAIT, paddle: { x: 700, y: 240 }, active: true, riding: false, state: 'delivered', capture: 0, dwell: .8 }, r.frameSeq + 1);
+      action(r, 'host', 'delivery'); step(r);
+    }
+    expect(r.phase).toBe('IMPOSTOR_GUESS'); step(r); expect(r.phase).toBe('DECISIONS');
+    expect(r.guessLocked).toBe(true); expect(r.guessed).toBe(false);
+    expect(r.publicState().demo).toBe(true); expect(r.hostState('http://localhost').links).toBeUndefined();
+    expect(JSON.stringify(r.publicState())).not.toContain(r.word.word);
+    const impostor = r.players.find(p => p.key === r.impostorKey)!; accuse(r, impostor); activate(r);
+    vi.setSystemTime(Date.now() + 100); r.acceptFrame({ ...r.frame! }, r.frameSeq + 1); r.tick();
+    expect(r.input.y).toBe(-1); expect(r.dashUsed).toBe(true);
+  });
+  it('does not automate normal rooms or advance a paused/disconnected demo', () => {
+    const normal = new Room(); normal.hostConnected = true; step(normal); expect(normal.phase).toBe('LOBBY');
+    const demo = new Room('local', true); step(demo); expect(demo.phase).toBe('LOBBY');
+    demo.hostConnected = true; demo.paused = true; step(demo); expect(demo.phase).toBe('LOBBY');
+    demo.paused = false; step(demo); expect(demo.phase).toBe('ROLE_DELIVERY');
+  });
+  it('rejects demo bots in Twitch rooms and never replaces connected local players', () => {
+    expect(() => new Room('twitch', true)).toThrow();
+    const r = new Room(); r.hostConnected = true; r.players[0].connected = true;
+    expect(() => action(r, 'host', 'demo')).toThrow('empty local lobby');
+    r.players[0].connected = false; action(r, 'host', 'demo'); step(r); expect(r.phase).toBe('ROLE_DELIVERY');
+  });
+});

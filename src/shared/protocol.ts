@@ -4,7 +4,7 @@ export type EscapeState = 'inactive' | 'starting' | 'active' | 'captured' | 'esc
 export type Input = { x: number; y: number; dash: boolean };
 export type PublicPlayer = { id: string; name: string; color: number; connected: boolean; ready: boolean; selected: boolean; clue?: string; answer?: string; delivered: boolean; outcome?: 'SAVE' | 'DROP'; position?: Vec; votes: { trust: number; drop: number } };
 export type PublicState = {
-  code: string; version: number; mode: 'local' | 'twitch'; phase: GamePhase; round: number; category?: string;
+  code: string; version: number; mode: 'local' | 'twitch'; demo: boolean; phase: GamePhase; round: number; category?: string;
   players: PublicPlayer[]; current?: string; clueCount: number; paused: boolean; hostConnected: boolean; timer: number;
   votingOpen: boolean; twitchConnected: boolean; saved: number; dropped: number; armed?: Zone;
   escape: EscapeState; escapeLeft: number; feedback?: string; result?: string; rematch: boolean;

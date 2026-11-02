@@ -43,7 +43,8 @@ app.post('/api/rooms', (req, res) => {
   ipLimits.set(key, { at: Date.now(), count: limit && limit.at > Date.now() - 60_000 ? limit.count + 1 : 1 });
   const mode = req.body?.mode === 'twitch' ? 'twitch' : 'local';
   if (mode === 'twitch' && (!clientId || !clientSecret)) { res.status(400).json({ error: 'Twitch credentials are not configured. Use Local Rehearsal.' }); return; }
-  const room = new Room(mode); while (rooms.has(room.code)) room.code = randomBytes(3).toString('hex').toUpperCase(); rooms.set(room.code, room);
+  if (req.body?.demo === true && mode !== 'local') { res.status(400).json({ error: 'Demo is local rehearsal only.' }); return; }
+  const room = new Room(mode, req.body?.demo === true); while (rooms.has(room.code)) room.code = randomBytes(3).toString('hex').toUpperCase(); rooms.set(room.code, room);
   res.json({ code: room.code, hostToken: room.hostToken });
 });
 function authUrl(room: Room, host: boolean, res: express.Response) {
@@ -88,6 +89,7 @@ app.get('/auth/twitch/callback', async (req, res) => {
 io.use((socket, next) => {
   const { room: code, token, kind } = socket.handshake.auth || {}, room = rooms.get(String(code));
   if (!room) { next(Error('Room not found. The server may have restarted.')); return; }
+  if (room.demo && kind === 'player') { next(Error('This demo uses simulated players. Create a local rehearsal for real player pages.')); return; }
   const player = typeof token === 'string' ? room.playerByToken(token) : undefined;
   if (kind === 'host' && token !== room.hostToken || kind === 'player' && !player || !['host', 'player', 'broadcast'].includes(kind)) { next(Error('Invalid private link.')); return; }
   const requestedOrigin = socket.handshake.headers.origin || `http://${socket.handshake.headers.host}`;

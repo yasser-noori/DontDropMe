@@ -12,6 +12,13 @@ let socket: Socket, state: PublicState, personal: PrivateState, host: HostState,
 let seq = 0, queue: string[] = [], lastRender = '', privateKey = '', hostKey = '', connected = false;
 let lastFrame: ActorFrame | undefined;
 let restore: ActorFrame | undefined;
+let demoMouseStarted = false;
+function startDemoMouse() {
+  if (kind === 'host' && state?.demo && scene?.frank && !demoMouseStarted) {
+    demoMouseStarted = true; scene.setMode('mouse');
+    document.querySelector('#message')!.textContent = 'SOLO DEMO · Players answer automatically. Carry them through the maze. Switch to Start Camera anytime.';
+  }
+}
 const drafts = new Map<string, string>();
 const root = document.querySelector('main')!;
 root.innerHTML = `<header><a class="wordmark" href="/">HOLD MY <span>CHAT</span><i>TRUST FALL / V1</i></a><div class="privacy"><b></b><span id="connection">CONNECTING</span></div></header><section class="intro"><div><p class="eyebrow">FOUR VIEWERS. THREE TRUTHS. ONE IMPOSTOR.</p><h1>Trust is a hands-on game.</h1><p id="subtitle">Carry your community. Question everything.</p></div><span id="room-badge" class="room-badge"></span></section><div id="notice" role="status" aria-live="polite"></div><section id="play-area" hidden><section id="stage"><video id="webcam" autoplay muted playsinline></video><div id="game"></div><div id="pause-overlay" hidden>PAUSED<span>Resume from the host controls.</span></div></section><section id="camera-bar" class="toolbar"><div class="actions"><button id="camera" class="primary">◉ Start Camera</button><button id="mouse">↖ Mouse Mode</button><button id="stop" hidden>Stop Camera</button></div><p id="message">Camera frames stay on your device. Mouse Mode is a rehearsal fallback.</p></section></section><section id="panel" class="trust-panel"></section><footer><span>HOLD MY CHAT / TRUST FALL</span><span id="mode-label">LOCAL REHEARSAL · PRIVATE ROLES</span></footer>`;
@@ -38,9 +45,9 @@ async function act(type: string, data?: Record<string, unknown>): Promise<boolea
     if (err || !reply?.ok) { notice(reply?.error || 'Action timed out. Reconnect and try again.'); resolve(false); } else { notice(''); resolve(true); }
   }));
 }
-async function createRoom(mode: 'local' | 'twitch') {
+async function createRoom(mode: 'local' | 'twitch', demo = false) {
   try {
-    const response = await fetch('/api/rooms', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode }) });
+    const response = await fetch('/api/rooms', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode, demo }) });
     const data = await response.json(); if (!response.ok) throw Error(data.error);
     location.assign(`/?room=${data.code}#host=${data.hostToken}`);
   } catch (error) { notice(error instanceof Error ? error.message : 'Cannot create room.'); }
@@ -53,7 +60,8 @@ async function landing() {
   }
   heading('Who will you trust?', 'Host four players in private browser sessions. Everyone gets a clue. Someone gets a secret.');
   let twitch = false; try { twitch = (await (await fetch('/api/config')).json()).twitch; } catch { notice('Server unavailable. Run npm run dev or npm start.'); }
-  panel.append(group(button('Create Local Rehearsal', () => void createRoom('local')), button(twitch ? 'Create Twitch Room' : 'Twitch · credentials required', () => void createRoom('twitch'), !twitch)));
+  panel.append(group(button('▶ Solo Demo · auto players', () => void createRoom('local', true)), button('Create Local Rehearsal', () => void createRoom('local')), button(twitch ? 'Create Twitch Room' : 'Twitch · credentials required', () => void createRoom('twitch'), !twitch)));
+  panel.append(node('p', 'Testing alone? Solo Demo supplies four simulated players, auto clues and answers, and an escaping demo impostor. You control the hand and SAVE/DROP decisions.', 'muted'));
   const cards = node('div', '', 'rules-grid');
   for (const [title, text] of [['01 / BLEND IN', 'Three players know the word. One only knows the category. Lock a clue, then answer one question.'], ['02 / HOLD ON', 'The host carries each player under the first wall and over the second. Save three, drop one.'], ['03 / TRUST FALL', 'Find the impostor and the chase begins. Twelve seconds. One dash. One chance to escape.']]) { const card = node('article'); card.append(node('h3', title), node('p', text)); cards.append(card); }
   panel.append(cards, anchor('Original rescue prototype ↗', '/?prototype'));
@@ -61,11 +69,13 @@ async function landing() {
 function renderHost() {
   const current = state.players.find(p => p.id === state.current), phase = state.phase;
   heading(`${phase.replaceAll('_', ' ')} · Round ${state.round || '—'}`, `${state.category ? `Category: ${state.category} · ` : ''}${state.saved}/3 saved · ${state.dropped}/1 dropped`);
+  if (state.demo) panel.append(node('p', 'SOLO DEMO · Four simulated players. Clues, answers, WAIT arming, Next Player, and guess/pass are automatic. You carry, choose SAVE/DROP, and catch the escaping bot.', 'muted'));
   const timer = node('p', '', 'timer'); timer.id = 'phase-timer'; panel.append(timer);
   if (host) {
     panel.append(group(anchor('Public broadcast ↗', host.broadcastUrl), ...(state.mode === 'twitch' ? [anchor('Viewer companion link ↗', host.joinUrl)] : [])));
   }
   if (phase === 'LOBBY') {
+    if (state.mode === 'local' && !state.demo) panel.append(button('▶ Start solo demo here', () => void act('demo'), state.players.some(p => p.connected)));
     if (state.mode === 'twitch') panel.append(button('Connect my Twitch channel', async () => {
       const response = await fetch('/api/twitch/connect', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ room: code }) });
       const data = await response.json(); if (data.url) location.assign(data.url); else notice(data.error);
@@ -169,7 +179,7 @@ function render() {
   const focus = document.activeElement instanceof HTMLInputElement ? { id: document.activeElement.id, start: document.activeElement.selectionStart } : undefined;
   panel.replaceChildren();
   document.querySelector('#room-badge')!.textContent = `ROOM ${state.code}`;
-  document.querySelector('#mode-label')!.textContent = state.mode === 'local' ? 'LOCAL REHEARSAL · NO TWITCH PARTICIPANTS' : `LIVE TWITCH · ${state.twitchConnected ? 'CHAT CONNECTED' : 'VOTING OFFLINE'}`;
+  document.querySelector('#mode-label')!.textContent = state.demo ? 'SOLO DEMO · SIMULATED PLAYERS · NO TWITCH VOTES' : state.mode === 'local' ? 'LOCAL REHEARSAL · NO TWITCH PARTICIPANTS' : `LIVE TWITCH · ${state.twitchConnected ? 'CHAT CONNECTED' : 'VOTING OFFLINE'}`;
   document.querySelector('#subtitle')!.textContent = kind === 'player' ? 'Private companion · your role is yours alone.' : kind === 'broadcast' ? 'Public broadcast · game overlay for OBS / screen capture.' : 'Host controls · keep private links off the broadcast.';
   if (kind === 'host') renderHost(); else if (kind === 'player') renderPlayer(); else renderBroadcast();
   if (focus) { const input = document.getElementById(focus.id) as HTMLInputElement | null; input?.focus(); input?.setSelectionRange(focus.start, focus.start); }
@@ -203,7 +213,7 @@ if (kind === 'player') setInterval(sendInput, 50);
 async function bootGame() {
   const [{ default: Phaser }, { TrustScene }, { HandTracker }] = await Promise.all([import('phaser'), import('./game/TrustScene'), import('./tracking/HandTracker')]);
   scene = new TrustScene(); scene.spectator = kind === 'broadcast'; scene.onAction = act; scene.onFrame = frame => socket?.emit('frame', frame, ++seq);
-  scene.onReady = () => { if (state) scene!.sync(state); if (restore) { scene!.restoreFrame(restore); restore = undefined; } };
+  scene.onReady = () => { if (state) scene!.sync(state); if (restore) { scene!.restoreFrame(restore); restore = undefined; } startDemoMouse(); };
   document.querySelector<HTMLElement>('#play-area')!.hidden = false;
   new Phaser.Game({ type: Phaser.AUTO, parent: 'game', width: 960, height: 540, transparent: true, antialias: true, physics: { default: 'arcade', arcade: { gravity: { x: 0, y: 720 }, fps: 60, fixedStep: true } }, scene: [scene], scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH }, banner: false });
   if (kind === 'broadcast') { document.querySelector<HTMLElement>('#camera-bar')!.hidden = true; return; }
@@ -227,7 +237,7 @@ else {
   socket.on('connect_error', error => notice(error.message));
   socket.on('state', (next: PublicState) => {
     if (state && state.round !== next.round) { drafts.clear(); keys.clear(); }
-    state = next; scene?.sync(state);
+    state = next; scene?.sync(state); startDemoMouse();
     const fingerprint = `${next.version}:${next.phase}:${next.current}`;
     if (fingerprint !== lastRender) { lastRender = fingerprint; render(); } else updateTimer();
     drawMap();
