@@ -12,7 +12,13 @@ Four viewers become tiny characters on the streamer's webcam. Three know a secre
 
 Built with **OpenAI Codex** for the **Codex x TwitchCon Hackathon**.
 
-[Try it locally](#play-it-now) · [Connect Twitch](#bring-your-community-in) · [Inside the build](#engineering-the-live-moment) · [Twitch setup details](TWITCH_SETUP.md)
+[Watch the demo](https://www.youtube.com/watch?v=ge3mh5ldNDU) · [Try it locally](#play-it-now) · [Connect Twitch](#bring-your-community-in) · [Inside the build](#engineering-the-live-moment) · [Twitch setup details](TWITCH_SETUP.md)
+
+## Watch DontDropMe! in action
+
+[![Watch the DontDropMe! demo on YouTube](https://img.youtube.com/vi/ge3mh5ldNDU/hqdefault.jpg)](https://www.youtube.com/watch?v=ge3mh5ldNDU)
+
+**[▶ Watch the demo on YouTube](https://www.youtube.com/watch?v=ge3mh5ldNDU)**
 
 ## A bluff you can hold
 
@@ -121,8 +127,6 @@ Rooms and authorization tokens live in memory in one server process. Restarting 
 
 ### Submission media
 
-The repository includes the [wordmark](public/assets/branding/dont-drop-me-wordmark.jpg), [transparent icon](public/assets/branding/dont-drop-me-icon-transparent.png), and cave artwork used in the game. A public gameplay video and a verified public live-demo URL have not yet been supplied.
-
-The strongest recording sequence is already in the game: **real chat joins → private roles → a viewer on the host's hand → chat votes → a cave verdict → the pinch-and-return chase**, followed by a brief look at the Codex build session.
+Watch the [project demo on YouTube](https://www.youtube.com/watch?v=ge3mh5ldNDU). The repository also includes the [wordmark](public/assets/branding/dont-drop-me-wordmark.jpg), [transparent icon](public/assets/branding/dont-drop-me-icon-transparent.png), and cave artwork used in the game. A verified public live-demo URL has not yet been supplied.
 
 **Give chat a body. Give the streamer a dilemma. Let the room decide who to believe.**
