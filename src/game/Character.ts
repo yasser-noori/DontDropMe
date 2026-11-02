@@ -8,6 +8,8 @@ export class Character extends Phaser.GameObjects.Container {
   readonly art: Phaser.GameObjects.Graphics;
   readonly label: Phaser.GameObjects.Text;
   id = 'frank';
+  color = 0xffc66d;
+  worried = false;
   constructor(scene: Phaser.Scene) {
     super(scene, 105, 366);
     scene.add.existing(this);
@@ -30,10 +32,10 @@ export class Character extends Phaser.GameObjects.Container {
     const stride = walking ? Math.sin(time / 80) * 3 : Math.sin(time / 280) * .6;
     g.fillStyle(0x070c19, .3).fillEllipse(0, 0, 30, 7);
     g.lineStyle(4, 0xd6a975).lineBetween(-5, -8, -6 - stride, -2).lineBetween(5, -8, 6 + stride, -2);
-    g.fillStyle(0xffc66d).fillRoundedRect(-11, -29, 22, 23, 7);
+    g.fillStyle(this.color).fillRoundedRect(-11, -29, 22, 23, 7);
     g.fillStyle(0xffe1a8).fillRoundedRect(-11, -36 + stride * .1, 22, 18, 7);
     g.fillStyle(0x19243b).fillCircle(-4, -28, 2).fillCircle(5, -28, 2);
-    g.lineStyle(1.4, 0x9f604a).beginPath().arc(1, -24, 3, 0, Math.PI).strokePath();
+    g.lineStyle(1.4, 0x9f604a).beginPath().arc(1, this.worried ? -21 : -24, 3, this.worried ? Math.PI : 0, this.worried ? Math.PI * 2 : Math.PI).strokePath();
     g.lineStyle(3, 0xffc66d).lineBetween(-11, -18, -15, this.state === 'riding' ? -25 : -12 + stride).lineBetween(11, -18, 15, this.state === 'riding' ? -25 : -12 - stride);
     g.fillStyle(0xf58c7b, .55).fillEllipse(-7, -24, 4, 2).fillEllipse(8, -24, 4, 2);
   }

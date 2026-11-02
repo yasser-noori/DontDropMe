@@ -1,78 +1,83 @@
-# HOLD MY CHAT
+# HOLD MY CHAT: TRUST FALL — V1
 
-A playable browser feasibility prototype: Frank walks onto your palm, rides across a mirrored webcam view, and walks into a portal. All artwork is procedural Phaser graphics. Camera frames are processed on your device; they are never recorded or uploaded.
+Four private player sessions. Three know the word; one knows only its category. The host carries each player through one fixed S maze using their webcam hand, asks a question, saves three and drops one. A correctly identified impostor gets a 12-second WASD escape chase, with one dash and a protected, privately shown ring.
 
 ## Run
 
-Requires Node.js 22.12+ (22.x), 24+, or 26+ and npm; Node 24 LTS is recommended. Use a recent desktop Chrome or Edge for the camera demonstration.
+Use Node 24 LTS (supported: Node 22.12+, 24.x, 26+) and npm.
 
 ```sh
 npm install
 npm run dev
 ```
 
-Open the localhost URL printed by Vite. Choose **Mouse Mode** to play immediately, or click **Start Camera** and allow access. Camera permission is requested only by that button. HTTPS or localhost is required. The versioned MediaPipe model and matching 0.10.32 WASM runtime are included in `public/mediapipe`; no model CDN is needed at runtime. Optional Google Fonts are the only external presentation request.
+Development defaults to http://127.0.0.1:5173. For the production build:
 
 ```sh
 npm run build
 npm test -- --run
-npm run preview
+npm start
 ```
 
-## Play and controls
+Production listens on `127.0.0.1:4173`. `npm run preview` also starts the integrated production server. Keep the Node server running; Vite preview alone cannot provide multiplayer. Optional configuration is in `.env.example`; copy it to `.env` and set `PUBLIC_ORIGIN` to the URL players actually use. Setting `PORT` overrides both development and production defaults. Rooms and OAuth sessions are in memory; restarting the server resets them.
 
-### Tailscale access
+The established Tailscale endpoint is **https://desktop-p7qh231.tail214b5d.ts.net/**, forwarding to port 4173. Keep this Windows PC awake and Tailscale connected. Access is tailnet-only; no public Funnel is configured. Start `npm start` again after a Windows restart. Disable access with `"C:\Program Files\Tailscale\tailscale.exe" serve --https=443 off` in a command shell, or invoke that executable with `&` in PowerShell.
 
-The production build is available within your tailnet at **https://desktop-p7qh231.tail214b5d.ts.net/**. Keep this Windows PC awake and connected to Tailscale. The HTTPS endpoint proxies to the production preview server on `127.0.0.1:4173`; its host allowlist is in `vite.config.ts`.
+The original rescue prototype is preserved at **/?prototype** with its camera, mouse, Space/R/P controls and `window.holdMyChat` integration boundary. TRUST FALL uses the authoritative room controls instead.
 
-Tailscale Serve configuration persists, but after restarting Windows, start the local server with `npm run preview`. After changing the game, run `npm run build` to update the served files. To disable access, run `tailscale serve --https=443 off` (the executable is in `C:\Program Files\Tailscale` if it is not on PATH). Access is restricted to your tailnet; no public Funnel is configured.
+## Play a local rehearsal
 
-- Move the paddle beside the right edge of the left platform, roughly level with its top. Frank automatically boards.
-- Carry him across the gap. Bring the paddle beside the left edge of the right platform and level with its top. Frank walks off and into the portal.
-- In Mouse Mode, the cursor is the paddle target. In Camera Mode, show one palm to the webcam; the paddle sits 18 logical pixels above its center.
-- **Space** spawns Frank; **R** resets Frank and the score; **P** pauses/resumes. Buttons provide mode selection, camera stop, pause, and reset.
-- Switching tabs pauses the game. Resume explicitly when you return. Stop Camera and Mouse Mode both release camera tracks; closing the page also stops them.
+1. Click **Create Local Rehearsal**. Keep the host URL private. Share each of the four private player links with exactly one participant. Each is an unguessable bearer-token session. For a one-machine rehearsal, use separate browser windows/devices; switching the host's tab into the background pauses the game.
+2. Each player opens their own page and clicks **I'm ready**. Host starts once four connected, selected players are ready. Private role cards appear only on the corresponding player pages. Host sees the category, never the word.
+3. Host opens clues. Players submit and lock one to three words, at most 32 characters. Drafts can be edited until locked. Links and explicit word/alias disclosures are rejected. All four clues reveal together. On timer expiry, host intervention is required; extend 15 seconds or resume.
+4. Choose **Mouse Mode** or **Start Camera**. Arm **WAIT**. Align the paddle beside pickup at roughly (220,420). Carry **under wall 01** to (440,400), **over wall 02** via (440,240), then toward (680,240). The character visibly walks onto WAIT. Ask a question aloud; the active player submits one typed answer. Host can reopen it. **Next player** requires both answer and delivery. Bring the paddle back along the same route in reverse.
+5. After four interrogations, the impostor privately locks one guess or passes. Informed players do not receive that form or the guess.
+6. Select a player; they visibly return from WAIT through the maze to pickup. Arm **SAVE**, collect them, follow the same route, then lower the paddle to about (680,345). Repeat for three players. SAVE can be undone before DROP; if a different player is already active, undo disarms that decision without moving them. Use **Return active player to pickup** if you need to change their destination after walk-off. Arm **DROP** for the last player and deliver at (680,450). The walk-off plus 700 ms dwell commits the armed decision. Quotas and the active player are checked on the server.
+7. Wrong suspect: immediate WRONG CHOICE and reveal. Correct suspect: IMPOSTOR FOUND and break-free. During the chase only that impostor's page accepts WASD/touch-pad movement and Space/touch dash. The host chases with the paddle. Hold contact for about 450 ms to capture. The viewer must physically enter the private ring in the visible no-hand sanctuary. Tracking loss freezes the chase clock and movement, rather than granting a capture or timeout.
+8. An escaped impostor enables **Anonymous rematch**: same underlying four players and impostor, new word/category, new public aliases/IDs/colors for all players, and no second escape for the impostor. Correct guesses override deduction, do not start escape, and end the streak. Caught/timed-out impostors and wrong accusations end the streak; a normal new round assigns fresh roles.
 
-## Compact architecture
+Camera permission is requested only after Start Camera. HTTPS or localhost is required. Frames are processed locally by the preserved MediaPipe HandLandmarker; they are not recorded or uploaded. Stop Camera, Mouse Mode and page close release camera tracks. Optional Google Fonts are external; the versioned MediaPipe model and matching 0.10.32 WASM files are local in `public/mediapipe` with the upstream license. Initialization follows the [official MediaPipe documentation](https://ai.google.dev/edge/mediapipe/solutions/vision/hand_landmarker/web_js).
 
-- `src/main.ts`: Vite entry, camera and control lifecycle, public command boundary.
-- `src/game/GameScene.ts`: 960 × 540 responsive scene, Arcade static collisions/gravity, assisted boarding/exit transitions, scoring and procedural effects.
-- `src/game/Character.ts`: expressive procedural character and Arcade body.
-- `src/game/HandPlatform.ts`: pure palm filter, tracking lifecycle, bounded final platform movement, transfer checks and absolute rider attachment.
-- `src/tracking/HandTracker.ts`: MediaDevices and MediaPipe only; emits plain logical `{x,y}` observations. A scheduled synchronous inference call runs at a 25 Hz target, lowering frequency when inference is slow. It never queues inferences.
+## Twitch live mode
 
-The video uses `object-fit: contain` behind the transparent canvas. Normalized landmarks map into that same contained rectangle before one horizontal mirror. Palm center uses landmarks 0, 5, 9, 13, and 17. The horizontal paddle has a fixed, forgiving 144 px width. Position smoothing uses `1 - exp(-dt / 0.075)`, observation jump limiting, and a final 720 px/s movement limit. Losing tracking holds the platform for 350 ms, then releases the rider to Arcade gravity. Attached feet are set from platform position plus one recorded offset, avoiding accumulated displacement and jitter detachment. Boarding and exit are short scripted walks, with 32 px horizontal-gap and 40 px vertical tolerances.
+No credentials are included. Without configuration the application explicitly offers **LOCAL REHEARSAL**, never simulated Twitch participants or votes.
 
-MediaPipe initialization follows the [official Hand Landmarker web documentation](https://ai.google.dev/edge/mediapipe/solutions/vision/hand_landmarker/web_js). It requests VIDEO mode, one hand, GPU first and CPU fallback. Bundled model: Google's version 1 float16 Hand Landmarker from `storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task`. Third-party MediaPipe runtime/model assets remain subject to their upstream licenses; see the included runtime license and [MediaPipe repository](https://github.com/google-ai-edge/mediapipe).
+1. Register an application in the [Twitch developer console](https://dev.twitch.tv/console/apps). Add the exact OAuth redirect URL `PUBLIC_ORIGIN/auth/twitch/callback`, for example `https://desktop-p7qh231.tail214b5d.ts.net/auth/twitch/callback`.
+2. Set `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, and `PUBLIC_ORIGIN` in `.env`. Restart the server. Do not put secrets in any `VITE_` variable.
+3. Create a Twitch room. Click **Connect my Twitch channel**, then authenticate as the broadcaster. The server uses authorization-code OAuth and verifies the identity through Helix. The host grants only `user:read:chat` for receive-only EventSub `channel.chat.message`; companion players authenticate without additional scopes. No whispers, chat-send scope, or email scope is requested.
+4. Share the viewer companion link shown in host controls. Viewers type `!join` in the connected channel and authenticate on the companion page with the same account. The server matches Twitch's verified account ID to the EventSub queue, rejects unmatched joins and deduplicates accounts. Host selects four connected, ready players.
+5. Host explicitly opens/closes advisory voting during each interrogation. Verified chatters use `!trust` / `!drop`; later votes replace earlier votes. Totals, percentages and sample size are shown. Votes are stored per interrogation for the decision summary. Disconnection disables voting without resetting the room; reconnect the channel from the lobby if authorization needs renewal.
 
-## Future Twitch boundary
+OAuth uses expiring, single-use state bound to an HttpOnly SameSite cookie. Tokens stay server-side. EventSub handles welcome, reconnect, keepalive timeout and revocation; refresh tokens are renewed in memory. Twitch configuration follows [chat authentication](https://dev.twitch.tv/docs/chat/authenticating/) and [EventSub WebSocket guidance](https://dev.twitch.tv/docs/eventsub/handling-websocket-events/). **Live OAuth, EventSub and real Twitch chat require credentials and have not been acceptance-tested here.**
 
-```ts
-window.holdMyChat.spawnCharacter({ id: 'viewer-123', name: 'Frank' });
-window.holdMyChat.command({ type: 'spawn', id: 'viewer-456', name: 'Alex' });
-window.holdMyChat.command({ type: 'reset' });
-window.holdMyChat.command({ type: 'pause' });
-window.holdMyChat.command({ type: 'resume' });
-```
+## Architecture and trust boundary
 
-The API is available after the game loads. A spawn replaces the single current character. No Twitch authentication, chat connection, backend or queue is implemented. The boundary is ready for a future Twitch adapter; this is not yet a production Twitch integration.
+- Existing `HandTracker.ts`, `PalmFilter`, `HandPlatform` and `Character` remain in use. `GameScene.ts` and `prototype.ts` retain the original game.
+- `shared/maze.ts`: exactly two fixed axis-aligned walls, fixed zones and sanctuary. Movement uses <=3 px substeps plus axis sliding. A 144 px horizontal paddle plus rider envelope is constrained as one unit. Riders use absolute paddle position plus their offset; displacement is not accumulated twice. Falling uses Arcade gravity/static collisions; recovery follows a visible route back to pickup.
+- `TrustScene.ts`: Phaser physical simulation, boarding/walk-off/dwell, entrance animation, constrained movement, aerial escape and capture. Only the host simulates physics. Public clients interpolate public actor frames. The broadcast page is a game overlay; capture the host's game region to include the local webcam, or layer the public overlay with a webcam source in OBS. Remote broadcast pages do not receive camera frames.
+- `server/Room.ts`: authoritative phases, random roles and curated words/aliases, filtering, clues, answers, decisions, deduplication, vote windows, eligibility, timers, results and rematches.
+- `server/index.ts`: Express, Socket.IO authentication/routing, static production hosting, private OAuth and room lifecycle. `server/Twitch.ts` receives verified Twitch events.
+- `trust.ts`: small DOM-based host/phone-friendly player/public UIs. All user text is rendered as text, never HTML.
 
-## Verification and limitations
+Public, host and individual-player payloads are built separately. Pre-reveal public/host payloads contain neither word nor hidden roles. The only ring coordinates sent to the host use a separate authorized simulation channel and are never rendered. The impostor alone receives the private ring map. **The host is trusted for physical collision results**: the server checks host authorization, active phase/player, timing, dwell/capture contact, quotas and escape eligibility, but cannot independently prove webcam-derived collisions. A host inspecting internal browser memory can discover the ring. Local rehearsal link owners can access their assigned private session; do not broadcast the host link panel. Disguises change presentation, never authenticated identity.
 
-The focused Vitest suite covers 10-second attachment stability, grace/inactive behavior, bounded extreme reacquisition, assisted transfer tolerances, and mirrored 16:9 / 4:3 / portrait coordinate mapping. Mouse acceptance and camera results are reported separately below. Physical webcam acceptance requires a person with a real hand and has **not** been performed by the coding agent.
+Actions include a room version and unique action ID. Stale and duplicate actions are rejected. Only the active impostor can submit escape input, and only the authorized host can report delivery/capture/ring events. Sequence-numbered frames prevent replay. Player disconnects preserve roles/submissions; reconnect restores private state. Host disconnect pauses progression; reconnect restores the last physical snapshot. Choose camera/mouse, align with the visible paddle, then explicitly Resume. Rematches shuffle public player ordering as well as IDs, aliases and colors, preventing a stable list index from identifying the returning impostor. No real player is silently replaced.
 
-The camera model runs synchronously on the main thread. Slower devices lower the inference frequency and may still stutter. One hand and one rider are supported. The fixed paddle is intentionally forgiving and is not a palm pose or finger collision simulation. Very fast motion can outrun the smoothed paddle. A large reacquisition jump is approached gradually, so align the palm with the visible paddle before continuing. Once an exit walk starts, Frank completes it independently of the hand.
+## Verification and remaining acceptance
 
-## Manual real-hand acceptance checklist
+Focused Vitest tests cover roles and filtering, clues, invalid/stale/duplicate actions, decision quotas and undo, fixed-wall tunneling and rider movement, sanctuary exclusion, escape eligibility/input/ring/capture validation, one-use escape, anonymous rematch identity, guess override, vote replacement/windows and duplicate verified accounts. Run `npm test -- --run` and `npm run build`.
 
-- [ ] Start Camera; verify camera permission, live image and tracking status. Move left/right and up/down: palm and paddle should align naturally.
-- [ ] Try a 4:3 camera; verify horizontal letterboxing and palm alignment near both image edges. Resize the browser and recheck.
-- [ ] Board Frank and carry him in both axes for 10 seconds without an unexplained fall.
-- [ ] Reach the exit; verify walk-off, portal effect, score increment and respawn. Complete **five consecutive real-hand rescues**.
-- [ ] Hide the hand for under 350 ms: the paddle holds Frank. Hide it longer: he falls and respawns.
-- [ ] Reintroduce the hand far away: Frank must not teleport. Pause/resume and switch tabs without a large movement jump.
-- [ ] Stop Camera: webcam activity ends. Deny permission / unplug the camera: an understandable error offers Mouse Mode.
+Verified: production build and **23 passing Vitest tests**. Headless Chrome exercised four distinct player pages, all clues, four physical mouse transports/interrogations, three SAVE transports and a correct DROP, then separately completed keyboard escape and sustained-hand-platform capture rounds. The escape run entered an anonymous rematch with a new word and the same private impostor. A returning impostor's second-escape rejection is covered by the rule tests. Host reload preserved rider position, paused safely and resumed to a successful delivery; player reload preserved role/answer. The 390px player layout had no horizontal overflow, and the public broadcast loaded. Socket-level checks verified no pre-reveal word/role in host/public payloads and rejected spectator writes/forged host credentials. Tailscale HTTPS served the integrated application, private Socket.IO connections and local model; synthetic-camera GPU initialization/stop passed. The original rescue page still loads and enters Mouse Mode. No uncaught browser errors were observed in the successful runs.
 
-## Browser verification record
+**Real-hand tracking alignment and live Twitch acceptance have not been performed.** No Twitch credentials are configured. Mouse/synthetic-camera tests are not evidence of webcam acceptance. Server memory, local bearer links and trusted-host physical reports are explicit V1 limitations. Slow devices may reduce tracking frequency; camera inference remains on the main thread. There is one maze, four active characters per round and one active transported character at a time. No database, chat bot messages, combat or random maze generation is included.
 
-Verified in headless Chrome through actual cursor input: five consecutive mouse rescues, a 10-second attached ride, falling/respawn after paddle deactivation, pause stability, reset, and no uncaught browser errors. Visually inspected initial and rescue screenshots. With a synthetic camera device, verified GPU model initialization, a live 1280 × 720 video stream, no-hand status, camera stop, permission-denied messaging, and Mouse Mode fallback. These camera checks do not establish real-hand acceptance.
+Manual checklist:
+
+- [ ] Four private browser sessions connect and ready; verify three word cards and one category-only impostor card. Broadcast/host must not display the word or role before reveal.
+- [ ] Lock four clues; carry each player with a real hand through both wall passages, ask one question, submit an answer and deliver to WAIT. Try pushing the tracked palm through a wall: virtual paddle and rider must stop/slide together.
+- [ ] Save three and drop an innocent: immediate wrong feedback, no escape, correct reveal. Test SAVE undo before the final DROP.
+- [ ] Drop the correct impostor: start from actual DROP position, test WASD/touch and one dash; hold palm contact to capture. Verify tracking loss and host disconnect pause the chase.
+- [ ] Complete escape through the private ring; verify the hand cannot enter sanctuary. Rematch with a new word/disguises, same private impostor and no second escape.
+- [ ] Lock a correct normalized guess: it wins even if the streamer identifies the impostor.
+- [ ] Reconnect a player and host; verify private state and physical recovery. Deny camera permission and use Mouse Mode.
+- [ ] With Twitch configured, verify authenticated !join matching, advisory vote replacement, host voting windows, stream-delay tolerance and disconnect behavior.

@@ -1,3 +1,4 @@
+import { moveConstrained } from '../shared/maze';
 export type Point = { x: number; y: number };
 export type TrackingState = 'tracked' | 'grace' | 'inactive';
 export const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
@@ -46,9 +47,12 @@ export class HandPlatform {
   position: Point = { x: 330, y: 365 };
   delta: Point = { x: 0, y: 0 };
   state: TrackingState = 'inactive';
+  maze = false;
+  sanctuary = false;
   move(target: Point, state: TrackingState, dt: number) {
     this.state = state;
-    const next = state === 'tracked' ? stepToward(this.position, target, 720 * clamp(dt, 0, 0.05)) : this.position;
+    let next = state === 'tracked' ? stepToward(this.position, target, 720 * clamp(dt, 0, 0.05)) : this.position;
+    if (this.maze) next = moveConstrained(this.position, next, 72, 38, 10, this.sanctuary);
     this.delta.x = next.x - this.position.x;
     this.delta.y = next.y - this.position.y;
     this.position = next;
