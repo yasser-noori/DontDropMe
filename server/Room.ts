@@ -84,6 +84,7 @@ export class Room {
   private seen = new Set<string>();
   private lastTick = Date.now();
   private demoAt = 0;
+  private pendingDrop = false;
   constructor(public mode: 'local' | 'twitch' = 'local', public demo = false) {
     this.require(!demo || mode === 'local', 'Demo players are only available in local rehearsal.');
     if (mode === 'local') ['Frank', 'Sarah', 'Mia', 'Alex'].forEach(name => this.addPlayer(name));
@@ -138,6 +139,7 @@ export class Room {
     this.phase = 'ROLE_DELIVERY'; this.armed = undefined; this.timer = 0; this.paused = false;
     this.escape = 'inactive'; this.escapeLeft = 12; this.escapePaused = 0; this.frame = undefined; this.frameSeq = -1;
     this.feedback = undefined; this.result = undefined; this.rematch = false; this.guess = ''; this.guessLocked = false; this.guessed = false; this.votingOpen = false; this.voteMap.clear();
+    this.pendingDrop = false;
   }
   private interrogation() { this.phase = 'INTERROGATION'; this.current = this.order[this.turn]; this.timer = 15; this.armed = undefined; this.voteMap.clear(); this.votingOpen = false; this.frame = undefined; }
   private finish(reason: string, rematch = false) {
@@ -167,7 +169,8 @@ export class Room {
       } else if (type === 'guess') {
         this.require(this.phase === 'IMPOSTOR_GUESS' && actor.key === this.impostorKey && !this.guessLocked);
         this.guess = clean(d.text ?? '', 40); this.guessed = this.word.aliases.some(a => normalize(a) === normalize(this.guess)); this.guessLocked = true;
-        this.phase = 'DECISIONS'; this.current = undefined; this.timer = 0;
+        this.phase = 'DECISIONS'; if (this.currentPlayer()?.outcome) this.current = undefined; this.timer = 0;
+        this.armed = this.pendingDrop ? 'DROP' : undefined; this.pendingDrop = false;
       } else throw Error('Player action not permitted.');
     } else {
       if (type === 'demo') { this.require(this.mode === 'local' && this.phase === 'LOBBY' && !this.players.some(p => p.connected), 'Start demo in an empty local lobby.'); this.demo = true; this.demoAt = 0; }
@@ -178,35 +181,38 @@ export class Room {
       } else if (type === 'start') { this.require(this.phase === 'LOBBY'); this.start(); }
       else if (type === 'clues') { this.require(this.phase === 'ROLE_DELIVERY'); this.phase = 'CLUE_SUBMISSION'; this.timer = 30; }
       else if (type === 'next') {
-        this.require(this.phase === 'INTERROGATION' && this.currentPlayer()?.delivered && this.currentPlayer()?.answer, 'Deliver the player and collect their answer first.');
-        this.turn++; if (this.turn === 4) { this.phase = 'IMPOSTOR_GUESS'; this.current = undefined; this.timer = 30; this.votingOpen = false; } else this.interrogation();
+        this.require(this.phase === 'INTERROGATION' && this.currentPlayer()?.answer && (this.currentPlayer()?.outcome === 'SAVE' || this.frame?.id === this.current && this.frame?.riding && Date.now() - this.frameAt < 1500), 'Ask the player on your hand and collect their answer first.');
+        this.currentPlayer()!.delivered = true;
+        this.turn++; if (this.turn === 4) { this.phase = 'IMPOSTOR_GUESS'; if (this.currentPlayer()?.outcome) this.current = undefined; this.timer = 30; this.votingOpen = false; this.armed = undefined; } else this.interrogation();
       } else if (type === 'reopen') { this.require(this.phase === 'INTERROGATION'); this.currentPlayer()!.answer = ''; this.timer = 15; this.paused = false; }
       else if (type === 'voting') { this.require(this.phase === 'INTERROGATION' && this.mode === 'twitch' && this.twitchConnected); this.votingOpen = !this.votingOpen; }
       else if (type === 'choose') {
-        this.require(this.phase === 'DECISIONS' && !this.armed && !this.current, 'Finish the current decision before selecting another player.'); const p = this.active().find(p => p.id === d.player);
+        this.require(this.phase === 'DECISIONS' && !this.armed && (!this.current || this.frame?.riding), 'Disarm before selecting another player.'); const p = this.active().find(p => p.id === d.player);
         this.require(p && !p.outcome, 'Choose an undecided player.'); this.current = p.id; this.frame = undefined;
       } else if (type === 'arm') {
         this.require(!this.paused && this.currentPlayer());
         const zone = d.zone as Zone;
-        if (this.phase === 'INTERROGATION') this.require(zone === 'WAIT' && !this.currentPlayer()!.delivered);
-        else {
-          this.require(this.phase === 'DECISIONS' && !this.currentPlayer()!.outcome);
+        {
+          this.require(['INTERROGATION', 'DECISIONS'].includes(this.phase) && !this.currentPlayer()!.outcome);
+          this.require(this.phase !== 'INTERROGATION' || this.currentPlayer()!.answer, 'Collect their answer while they ride your hand first.');
           const saved = this.active().filter(p => p.outcome === 'SAVE').length;
           this.require((zone === 'SAVE' && saved < 3) || (zone === 'DROP' && saved === 3), 'Save exactly three players before arming DROP.');
+          if (zone === 'DROP' && this.phase === 'INTERROGATION') {
+            this.require(this.turn === 3 && this.active().every(p => p.answer), 'Question everyone before the final DROP.');
+            this.phase = 'IMPOSTOR_GUESS'; this.timer = 30; this.votingOpen = false; this.pendingDrop = true; this.armed = undefined;
+          } else this.armed = zone;
         }
-        this.armed = zone;
       } else if (type === 'disarm') { this.armed = undefined; }
       else if (type === 'delivery') {
         this.require(!this.paused && this.armed && this.frame && this.frame.id === this.current && Date.now() - this.frameAt < 1500, 'No recent physical delivery.');
         const p = this.currentPlayer()!, zone = this.armed;
         this.require(near(this.frame.position, ZONES[zone], 38) && !this.frame.riding, 'The character must walk onto the destination.');
-        if (zone === 'WAIT') { this.require(this.phase === 'INTERROGATION'); p.delivered = true; this.armed = undefined; }
-        else {
-          this.require(this.phase === 'DECISIONS' && !p.outcome && this.frame.dwell >= .69);
+        {
+          this.require((this.phase === 'DECISIONS' || this.phase === 'INTERROGATION' && zone === 'SAVE' && p.answer) && !p.outcome && this.frame.dwell >= .69);
           const saved = this.active().filter(p => p.outcome === 'SAVE').length;
           this.require(zone === 'SAVE' ? saved < 3 : saved === 3 && !this.active().some(p => p.outcome === 'DROP'));
-          p.outcome = zone; this.armed = undefined;
-          if (zone === 'SAVE') this.current = undefined;
+          p.outcome = zone; p.delivered = true; this.armed = undefined;
+          if (zone === 'SAVE') { if (this.phase === 'DECISIONS') this.current = undefined; }
           else if (p.key !== this.impostorKey) { this.feedback = 'WRONG CHOICE'; this.finish('IMPOSTOR WINS BY DECEPTION'); }
           else if (this.guessed) { this.feedback = 'IMPOSTOR FOUND'; this.finish('IMPOSTOR WINS BY GUESSING'); }
           else if (p.escapeSpent) { this.feedback = 'IMPOSTOR FOUND · ESCAPE ALREADY SPENT'; this.finish('STREAMER WINS · IMPOSTOR ELIMINATED'); }
@@ -215,7 +221,7 @@ export class Room {
           }
         }
       } else if (type === 'undo') {
-        this.require(this.phase === 'DECISIONS'); const p = this.active().find(p => p.id === d.player && p.outcome === 'SAVE'); this.require(p); p.outcome = undefined; this.armed = undefined;
+        this.require(['INTERROGATION', 'DECISIONS'].includes(this.phase)); const p = this.active().find(p => p.id === d.player && p.outcome === 'SAVE'); this.require(p); p.outcome = undefined; this.armed = undefined;
       } else if (type === 'capture' || type === 'ring') {
         this.require(this.phase === 'ESCAPE' && this.escape === 'active' && !this.paused && this.tracking && this.escapePaused === 0 && this.currentPlayer()?.key === this.impostorKey && this.frame && Date.now() - this.frameAt < 500 && d.player === this.current);
         if (type === 'capture') {
@@ -279,9 +285,8 @@ export class Room {
       }
     } else if (this.phase === 'INTERROGATION') {
       const player = this.currentPlayer()!;
-      if (!player.answer) act(player, 'answer', { text: player.key === this.impostorKey ? 'I know the general category, but the specifics are a blur.' : `I was thinking of ${player.clue}, especially the feeling around it.` });
-      else if (player.delivered) act('host', 'next');
-      else if (!this.armed) act('host', 'arm', { zone: 'WAIT' });
+      if (!player.answer && this.frame?.id === player.id && this.frame.riding) act(player, 'answer', { text: player.key === this.impostorKey ? 'I know the general category, but the specifics are a blur.' : `I was thinking of ${player.clue}, especially the feeling around it.` });
+      else if (player.outcome === 'SAVE' || this.turn === 3 && player.answer && this.frame?.riding && this.active().filter(p => p.outcome === 'SAVE').length === 3) act('host', 'next');
     } else if (this.phase === 'IMPOSTOR_GUESS') act(this.players.find(p => p.key === this.impostorKey)!, 'guess', { text: '' });
   }
   tick(now = Date.now()) {
@@ -294,7 +299,7 @@ export class Room {
       if (this.escape === 'starting') { if (now - this.escapeStarted >= 650) { this.escape = 'active'; this.version++; } }
       else if (this.escape === 'active') { this.escapeLeft = Math.max(0, this.escapeLeft - dt); if (!this.escapeLeft) { this.escape = 'timed_out'; this.finish('STREAMER WINS · ESCAPE TIMED OUT'); this.version++; } }
     } else if (['CLUE_SUBMISSION', 'IMPOSTOR_GUESS', 'INTERROGATION'].includes(this.phase) && this.timer > 0) {
-      if (this.phase === 'INTERROGATION' && this.currentPlayer()?.answer) return;
+      if (this.phase === 'INTERROGATION' && (this.currentPlayer()?.answer || this.frame?.id !== this.current || !this.frame?.riding || !this.frame.active)) return;
       this.timer = Math.max(0, this.timer - dt); if (!this.timer) { this.paused = true; this.version++; }
     }
   }

@@ -69,7 +69,7 @@ async function landing() {
 function renderHost() {
   const current = state.players.find(p => p.id === state.current), phase = state.phase;
   heading(`${phase.replaceAll('_', ' ')} · Round ${state.round || '—'}`, `${state.category ? `Category: ${state.category} · ` : ''}${state.saved}/3 saved · ${state.dropped}/1 dropped`);
-  if (state.demo) panel.append(node('p', 'SOLO DEMO · Four simulated players. Clues, answers, WAIT arming, Next Player, and guess/pass are automatic. You carry, choose SAVE/DROP, and catch the escaping bot.', 'muted'));
+  if (state.demo) panel.append(node('p', 'SOLO DEMO · Pick up each player to get an automatic answer. Arm SAVE and land them directly on SAVE. After three saves, question the last rider and arm DROP. No interrogation platform or extra tabs.', 'muted'));
   const timer = node('p', '', 'timer'); timer.id = 'phase-timer'; panel.append(timer);
   if (host) {
     panel.append(group(anchor('Public broadcast ↗', host.broadcastUrl), ...(state.mode === 'twitch' ? [anchor('Viewer companion link ↗', host.joinUrl)] : [])));
@@ -93,8 +93,8 @@ function renderHost() {
   } else if (phase === 'ROLE_DELIVERY') panel.append(button('Everyone has their role · open clues', () => void act('clues')));
   else if (phase === 'CLUE_SUBMISSION') heading(`${state.clueCount}/4 clues locked`, 'Clues stay private until everyone locks. Extend time if someone needs help.');
   else if (phase === 'INTERROGATION') {
-    heading(`On the hand: ${current?.name || 'Waiting'}`, 'Ask one question aloud. Arm WAIT, carry the player through the maze, and wait for them to walk off.');
-    panel.append(group(button(state.armed === 'WAIT' ? 'WAIT armed ✓' : 'Arm WAIT delivery', () => void act('arm', { zone: 'WAIT' }), !!current?.delivered), button('Reopen answer', () => void act('reopen'), !current?.answer), button('Next player →', () => void act('next'), !current?.delivered || !current?.answer)));
+    heading(`On the hand: ${current?.name || 'Waiting'}`, 'Interrogate the player while they ride your hand. Arm SAVE or DROP, then hold the paddle beside that ledge. Save three before the final DROP.');
+    panel.append(group(button(state.armed === 'SAVE' ? 'SAVE armed ✓' : 'Arm SAVE', () => void act('arm', { zone: 'SAVE' }), !current?.answer || !!current?.outcome || state.saved >= 3), button(state.armed === 'DROP' ? 'DROP armed ✓' : 'Arm DROP', () => void act('arm', { zone: 'DROP' }), !current?.answer || !!current?.outcome || state.saved !== 3, true), button('Reopen answer', () => void act('reopen'), !current?.answer), button(current?.outcome ? 'Next player →' : 'Finish interview · decide later', () => void act('next'), !current?.answer)));
     if (state.mode === 'twitch') panel.append(button(state.votingOpen ? 'Close advisory voting' : 'Open advisory voting', () => void act('voting'), !state.twitchConnected));
   } else if (phase === 'IMPOSTOR_GUESS') heading('Private word guess', 'The impostor must lock one guess or pass on their own page. Correctness stays hidden until the reveal.');
   else if (phase === 'DECISIONS') {
@@ -106,9 +106,9 @@ function renderHost() {
     state.players.forEach(p => {
       const card = node('article', '', `player-card ${p.id === state.current ? 'current' : ''}`);
       const total = p.votes.trust + p.votes.drop;
-      card.append(node('h3', `${p.name}${p.outcome ? ` · ${p.outcome}` : ''}`), node('p', p.clue ? `“${p.clue}”` : 'Clue private'), node('p', p.answer || 'No answer yet', 'muted'), node('small', `${p.connected ? '●' : '○'} ${p.delivered ? 'Delivered' : 'Not delivered'} · Advisory ${total ? Math.round(p.votes.trust / total * 100) : 0}% trust · ${p.votes.trust} trust / ${p.votes.drop} drop · n=${total}`));
-      if (phase === 'DECISIONS' && !p.outcome) card.append(button('Collect this player', () => void act('choose', { player: p.id }), !!state.armed || !!current));
-      if (phase === 'DECISIONS' && p.outcome === 'SAVE') card.append(button('Undo SAVE', () => void act('undo', { player: p.id })));
+      card.append(node('h3', `${p.name}${p.outcome ? ` · ${p.outcome}` : ''}`), node('p', p.clue ? `“${p.clue}”` : 'Clue private'), node('p', p.answer || 'No answer yet', 'muted'), node('small', `${p.connected ? '●' : '○'} ${p.delivered ? 'Interview complete' : 'Awaiting interview'} · Advisory ${total ? Math.round(p.votes.trust / total * 100) : 0}% trust · ${p.votes.trust} trust / ${p.votes.drop} drop · n=${total}`));
+      if (phase === 'DECISIONS' && !p.outcome) card.append(button('Collect this player', () => void act('choose', { player: p.id }), !!state.armed || current?.id === p.id));
+      if (['INTERROGATION', 'DECISIONS'].includes(phase) && p.outcome === 'SAVE') card.append(button('Undo SAVE', () => void act('undo', { player: p.id })));
       cards.append(card);
     }); panel.append(cards);
   }

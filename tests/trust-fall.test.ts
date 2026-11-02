@@ -1,7 +1,7 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { Room, type Player } from '../server/Room';
 import { HandPlatform, RiderAttachment } from '../src/game/HandPlatform';
-import { WALLS, moveConstrained, overlaps, ZONES, type Zone } from '../src/shared/maze';
+import { WALLS, canLand, moveConstrained, overlaps, ZONES, type Zone } from '../src/shared/maze';
 import type { Action } from '../src/shared/protocol';
 
 function action(room: Room, actor: 'host' | Player, type: string, data?: Record<string, unknown>) {
@@ -14,9 +14,10 @@ function deliver(r: Room, zone: Zone) {
   r.acceptFrame({ id: r.current!, position: { ...ZONES[zone] }, paddle: { x: 700, y: ZONES[zone].y }, active: true, riding: false, state: 'delivered', capture: 0, dwell: .8 }, r.frameSeq + 1);
   action(r, 'host', 'delivery');
 }
+function onHand(r: Room) { r.acceptFrame({ id: r.current!, position: { x: 440, y: 400 }, paddle: { x: 440, y: 400 }, active: true, riding: true, state: 'riding', capture: 0, dwell: 0 }, r.frameSeq + 1); }
 function guess(r: Room, text = '') {
   clues(r);
-  for (let i = 0; i < 4; i++) { action(r, r.currentPlayer()!, 'answer', { text: 'An ambiguous answer.' }); deliver(r, 'WAIT'); action(r, 'host', 'next'); }
+  for (let i = 0; i < 4; i++) { action(r, r.currentPlayer()!, 'answer', { text: 'An ambiguous answer.' }); onHand(r); action(r, 'host', 'next'); }
   action(r, r.players.find(p => p.key === r.impostorKey)!, 'guess', { text });
 }
 function accuse(r: Room, suspect: Player) {
@@ -123,7 +124,7 @@ describe('authoritative Trust Fall round', () => {
     action(r, 'host', 'voting'); r.vote('viewer1', 'trust'); r.vote('viewer1', 'drop'); r.vote('viewer2', 'trust');
     expect(r.currentPlayer()!.votes).toEqual({ trust: 1, drop: 1 });
     r.twitchConnected = false; r.vote('viewer3', 'trust'); expect(r.currentPlayer()!.votes.trust).toBe(1);
-    action(r, r.currentPlayer()!, 'answer', { text: 'A response' }); deliver(r, 'WAIT'); action(r, 'host', 'next');
+    action(r, r.currentPlayer()!, 'answer', { text: 'A response' }); onHand(r); action(r, 'host', 'next');
     expect(r.voteMap.size).toBe(0); expect(r.votingOpen).toBe(false); expect(r.currentPlayer()!.votes).toEqual({ trust: 0, drop: 0 });
   });
   it('never creates duplicate entries for the same verified Twitch account', () => {
@@ -150,6 +151,13 @@ describe('fixed S maze', () => {
     expect(moveConstrained(from, target, 72, 38, 10, true).x).toBeLessThanOrEqual(688);
     expect(moveConstrained(from, target, 12, 35, 0).x).toBeCloseTo(850);
   });
+  it('accepts SAVE and DROP landings along the entire visible ledge, including the far right', () => {
+    for (const zone of ['SAVE', 'DROP'] as const) {
+      for (const x of [670, 755, 800, 850, 888]) expect(canLand({ x, y: ZONES[zone].y + 35 }, zone)).toBe(true);
+      expect(canLand({ x: 440, y: ZONES[zone].y }, zone)).toBe(false);
+      expect(canLand({ x: 800, y: ZONES[zone].y + 41 }, zone)).toBe(false);
+    }
+  });
 });
 
 describe('explicit solo demo', () => {
@@ -162,14 +170,14 @@ describe('explicit solo demo', () => {
     expect(r.phase).toBe('INTERROGATION'); expect(r.publicState().clueCount).toBe(4);
     expect(r.active().every(p => p.locked && p.clue.length <= 32)).toBe(true);
     for (let i = 0; i < 4; i++) {
-      step(r); expect(r.currentPlayer()!.answer).not.toBe(''); step(r); expect(r.armed).toBe('WAIT');
-      r.acceptFrame({ id: r.current!, position: ZONES.WAIT, paddle: { x: 700, y: 240 }, active: true, riding: false, state: 'delivered', capture: 0, dwell: .8 }, r.frameSeq + 1);
-      action(r, 'host', 'delivery'); step(r);
+      onHand(r); step(r); expect(r.currentPlayer()!.answer).not.toBe('');
+      if (i < 3) { deliver(r, 'SAVE'); step(r); } else action(r, 'host', 'next');
     }
     expect(r.phase).toBe('IMPOSTOR_GUESS'); step(r); expect(r.phase).toBe('DECISIONS');
     expect(r.guessLocked).toBe(true); expect(r.guessed).toBe(false);
     expect(r.publicState().demo).toBe(true); expect(r.hostState('http://localhost').links).toBeUndefined();
     expect(JSON.stringify(r.publicState())).not.toContain(r.word.word);
+    for (const p of r.players.filter(p => p.outcome === 'SAVE')) action(r, 'host', 'undo', { player: p.id });
     const impostor = r.players.find(p => p.key === r.impostorKey)!; accuse(r, impostor); activate(r);
     vi.setSystemTime(Date.now() + 100); r.acceptFrame({ ...r.frame! }, r.frameSeq + 1); r.tick();
     expect(r.input.y).toBe(-1); expect(r.dashUsed).toBe(true);
@@ -185,5 +193,25 @@ describe('explicit solo demo', () => {
     const r = new Room(); r.hostConnected = true; r.players[0].connected = true;
     expect(() => action(r, 'host', 'demo')).toThrow('empty local lobby');
     r.players[0].connected = false; action(r, 'host', 'demo'); step(r); expect(r.phase).toBe('ROLE_DELIVERY');
+  });
+});
+
+describe('interrogate on the hand, then land directly', () => {
+  it('saves during interrogation and keeps the final rider through guess and DROP', () => {
+    const r = room(); clues(r);
+    for (let i = 0; i < 3; i++) {
+      onHand(r); action(r, r.currentPlayer()!, 'answer', { text: 'Answering on the hand.' });
+      deliver(r, 'SAVE'); expect(r.publicState().saved).toBe(i + 1); expect(r.phase).toBe('INTERROGATION'); action(r, 'host', 'next');
+    }
+    onHand(r); action(r, r.currentPlayer()!, 'answer', { text: 'Last on-hand answer.' });
+    const last = r.current; action(r, 'host', 'arm', { zone: 'DROP' }); expect(r.phase).toBe('IMPOSTOR_GUESS'); expect(r.current).toBe(last);
+    action(r, r.players.find(p => p.key === r.impostorKey)!, 'guess', { text: '' });
+    expect(r.current).toBe(last); expect(r.armed).toBe('DROP'); expect(r.frame?.riding).toBe(true);
+    deliver(r, 'DROP'); expect(r.publicState().saved).toBe(3); expect(r.publicState().dropped).toBe(1);
+  });
+  it('does not burn the answer timer while the player waits to be picked up', () => {
+    const r = room(); clues(r); const before = r.timer;
+    vi.setSystemTime(Date.now() + 10_000); r.tick(); expect(r.timer).toBe(before); expect(r.paused).toBe(false);
+    onHand(r); vi.setSystemTime(Date.now() + 100); r.tick(); expect(r.timer).toBeLessThan(before);
   });
 });

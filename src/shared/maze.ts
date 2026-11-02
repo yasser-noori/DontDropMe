@@ -3,8 +3,11 @@ export type Rect = Vec & { w: number; h: number };
 export const WALLS: Rect[] = [{ x: 300, y: 75, w: 24, h: 245 }, { x: 550, y: 295, w: 24, h: 245 }];
 export const SANCTUARY: Rect = { x: 760, y: 75, w: 185, h: 105 };
 export const ENTRANCE = { x: 125, y: 420 };
-export const ZONES = { WAIT: { x: 800, y: 240 }, SAVE: { x: 800, y: 345 }, DROP: { x: 800, y: 450 } };
+export const ZONES = { SAVE: { x: 800, y: 345 }, DROP: { x: 800, y: 450 } };
 export type Zone = keyof typeof ZONES;
+export function canLand(paddle: Vec, zone: Zone) {
+  return paddle.x + 72 >= 755 - 32 && paddle.x - 72 <= 930 + 32 && Math.abs(paddle.y - ZONES[zone].y) <= 40;
+}
 export function overlaps(p: Vec, halfX: number, above: number, below: number, r: Rect) {
   return p.x + halfX > r.x && p.x - halfX < r.x + r.w && p.y + below > r.y && p.y - above < r.y + r.h;
 }
