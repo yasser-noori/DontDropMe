@@ -3,6 +3,12 @@ import { HandPlatform, PalmFilter, RiderAttachment } from '../src/game/HandPlatf
 import { mapVideoPoint } from '../src/tracking/HandTracker';
 
 describe('hand tracking resilience', () => {
+  it('moves freely through the former walls without disturbing the rider', () => {
+    const paddle = new HandPlatform(); paddle.maze = true; paddle.position = { x: 260, y: 200 };
+    for (let i = 0; i < 60; i++) paddle.move({ x: 400, y: 200 }, 'tracked', 1 / 60);
+    expect(paddle.width).toBe(144);
+    expect(paddle.position.x).toBeCloseTo(400);
+  });
   it('holds the last position during grace then deactivates after 350 ms', () => {
     const filter = new PalmFilter(), paddle = new HandPlatform();
     filter.observe({ x: 300, y: 360 }, 1); filter.update(1, 1 / 60);

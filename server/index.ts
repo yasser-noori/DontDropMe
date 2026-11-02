@@ -6,7 +6,7 @@ import { existsSync } from 'node:fs';
 import { loadEnvFile } from 'node:process';
 import { Server } from 'socket.io';
 import { Room, type Player } from './Room';
-import { TwitchChat } from './Twitch';
+import { TwitchChat, validateTwitchToken } from './Twitch';
 import type { Action, ActorFrame, Input } from '../src/shared/protocol';
 
 if (existsSync('.env')) loadEnvFile('.env');
@@ -23,6 +23,7 @@ const io = new Server(server, { maxHttpBufferSize: 12000, allowRequest: (req, do
 const rooms = new Map<string, Room>(), hosts = new Map<string, string>();
 const adapters = new Map<string, TwitchChat>();
 const oauth = new Map<string, { room: Room; host: boolean; expires: number }>();
+const viewerSessions = new Map<string, { access: string; refresh: string; room: Room; player: Player }>();
 const ipLimits = new Map<string, { at: number; count: number }>();
 function base(req: express.Request) { return allowed.has(`${req.protocol}://${req.get('host')}`) ? `${req.protocol}://${req.get('host')}` : origin; }
 function emitRoom(room: Room) {
@@ -73,15 +74,19 @@ app.get('/auth/twitch/callback', async (req, res) => {
     const credentials = await tokenResponse.json() as { access_token: string; refresh_token: string };
     const identityResponse = await fetch('https://api.twitch.tv/helix/users', { headers: { Authorization: `Bearer ${credentials.access_token}`, 'Client-Id': clientId } });
     if (!identityResponse.ok) throw Error('identity');
-    const identity = (await identityResponse.json() as { data: { id: string; display_name: string }[] }).data[0]; if (!identity) throw Error('identity');
+    const identity = (await identityResponse.json() as { data: { id: string; display_name: string; login: string }[] }).data[0]; if (!identity) throw Error('identity');
+    const validated = await validateTwitchToken(credentials.access_token, clientId, identity.id);
+    if (entry.host && !validated.scopes.includes('user:read:chat')) throw Error('scope');
     const room = entry.room;
     if (entry.host) {
-      adapters.get(room.code)?.stop(); const adapter = new TwitchChat(room, credentials.access_token, credentials.refresh_token, identity.id, clientId, clientSecret, () => emitRoom(room)); adapters.set(room.code, adapter); adapter.start();
+      room.twitchChannel = { name: identity.display_name, login: identity.login };
+      for (const [key, previous] of adapters) if (key === room.code || previous.userId === identity.id) { previous.stop(); adapters.delete(key); } const adapter = new TwitchChat(room, credentials.access_token, credentials.refresh_token, identity.id, clientId, clientSecret, () => emitRoom(room), message => io.to(room.code).emit('twitch-chat', message)); adapters.set(room.code, adapter); await adapter.start();
       res.redirect(`${origin}/?room=${room.code}#host=${room.hostToken}`);
     } else {
       const existing = room.players.find(p => p.twitchId === identity.id);
       if (!existing && !room.joinQueue.has(identity.id)) { res.status(403).send('Type !join in the connected Twitch channel first, then return to the companion link.'); return; }
-      const player = existing || room.addPlayer(identity.display_name, identity.id); emitRoom(room);
+      const player = existing || room.addPlayer(identity.display_name, identity.id);
+      viewerSessions.set(player.key, { access: credentials.access_token, refresh: credentials.refresh_token, room, player }); emitRoom(room);
       res.redirect(`${origin}/?room=${room.code}#player=${player.token}`);
     }
   } catch { res.status(502).send('Twitch authorization failed. Return to the room and reconnect.'); }
@@ -130,6 +135,25 @@ io.on('connection', socket => {
     room.version++; emitRoom(room);
   });
 });
+// OAuth sessions must be validated at least hourly, including private viewer sessions.
+setInterval(() => {
+  for (const [key, session] of viewerSessions) void (async () => {
+    try {
+      const identity = await validateTwitchToken(session.access, clientId, session.player.twitchId);
+      if (identity.expires_in < 600) {
+        const response = await fetch('https://id.twitch.tv/oauth2/token', { method: 'POST', body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: session.refresh, client_id: clientId, client_secret: clientSecret }), signal: AbortSignal.timeout(10_000) });
+        if (!response.ok) throw Error('refresh');
+        const token = await response.json() as { access_token: string; refresh_token: string };
+        session.access = token.access_token; session.refresh = token.refresh_token;
+        await validateTwitchToken(session.access, clientId, session.player.twitchId);
+      }
+    } catch {
+      viewerSessions.delete(key); session.player.token = randomBytes(24).toString('hex'); session.player.connected = false; session.player.ready = false;
+      for (const socket of io.sockets.sockets.values()) if (socket.data.player === session.player) socket.disconnect(true);
+      emitRoom(session.room);
+    }
+  })();
+}, 50 * 60_000);
 setInterval(() => { for (const room of rooms.values()) { room.tick(); emitRoom(room); } for (const [key, entry] of oauth) if (entry.expires < Date.now()) oauth.delete(key); }, 100);
 if (production) app.use(express.static(resolve('dist')));
 else { const { createServer: vite } = await import('vite'); const dev = await vite({ server: { middlewareMode: true, hmr: { server } }, appType: 'spa' }); app.use(dev.middlewares); }

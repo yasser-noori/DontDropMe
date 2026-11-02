@@ -1,12 +1,25 @@
 export type Vec = { x: number; y: number };
 export type Rect = Vec & { w: number; h: number };
-export const WALLS: Rect[] = [{ x: 300, y: 75, w: 24, h: 245 }, { x: 550, y: 295, w: 24, h: 245 }];
+// The hand travels freely. Playground ledges only support fallen actors and debris.
+export const WALLS: Rect[] = [];
+export const FLOATING_PLATFORMS: Rect[] = [
+  { x: 172, y: 180, w: 100, h: 12 },
+  { x: 382, y: 451, w: 100, h: 12 },
+  { x: 609, y: 300, w: 100, h: 12 },
+];
 export const SANCTUARY: Rect = { x: 760, y: 75, w: 185, h: 105 };
 export const ENTRANCE = { x: 125, y: 420 };
-export const ZONES = { SAVE: { x: 800, y: 345 }, DROP: { x: 800, y: 450 } };
+export const DESTINATION_LEDGE = { x: 785, w: 175 };
+export const ZONES = { SAVE: { x: 850, y: 120 }, DROP: { x: 850, y: 480 } };
 export type Zone = keyof typeof ZONES;
+export function landedZone(feet: Vec): Zone | undefined {
+  return (Object.keys(ZONES) as Zone[]).find(zone => near(feet, ZONES[zone], 38));
+}
 export function canLand(paddle: Vec, zone: Zone) {
-  return paddle.x + 72 >= 755 - 32 && paddle.x - 72 <= 930 + 32 && Math.abs(paddle.y - ZONES[zone].y) <= 40;
+  // The lower cave must be approachable before the palm leaves the camera frame.
+  const height = paddle.y - ZONES[zone].y;
+  const approachAbove = zone === 'DROP' ? 80 : 40;
+  return paddle.x + 72 >= DESTINATION_LEDGE.x - 32 && paddle.x - 72 <= DESTINATION_LEDGE.x + DESTINATION_LEDGE.w + 32 && height >= -approachAbove && height <= 40;
 }
 export function overlaps(p: Vec, halfX: number, above: number, below: number, r: Rect) {
   return p.x + halfX > r.x && p.x - halfX < r.x + r.w && p.y + below > r.y && p.y - above < r.y + r.h;

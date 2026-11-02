@@ -16,14 +16,14 @@ export class Character extends Phaser.GameObjects.Container {
     scene.physics.add.existing(this);
     this.body.setSize(22, 34).setOffset(-11, -34);
     this.art = scene.add.graphics();
-    this.label = scene.add.text(0, -55, 'Frank', { fontFamily: 'DM Sans, sans-serif', fontSize: '11px', color: '#f5e4ba', backgroundColor: '#101a2bd9', padding: { x: 8, y: 3 } }).setOrigin(.5);
+    this.label = scene.add.text(0, -55, 'Leo', { fontFamily: 'DM Sans, sans-serif', fontSize: '11px', color: '#61566e', backgroundColor: '#ffffffeb', padding: { x: 8, y: 3 } }).setOrigin(.5);
     this.add([this.art, this.label]);
     this.setDepth(10);
   }
   setFeet(p: Point) { this.setPosition(p.x, p.y); this.body.reset(p.x, p.y); }
   attach() { this.body.setAllowGravity(false); this.body.setVelocity(0); this.body.enable = false; }
   release(vx = 0, vy = 0) { this.body.enable = true; this.body.reset(this.x, this.y); this.body.setAllowGravity(true); this.body.setVelocity(vx, vy); }
-  spawn(id = 'frank', name = 'Frank') {
+  spawn(id = 'frank', name = 'Leo') {
     this.id = id; this.label.setText(name.slice(0, 24)); this.state = 'spawn';
     this.setAlpha(1).setScale(1); this.setFeet({ x: 105, y: 366 }); this.release();
   }

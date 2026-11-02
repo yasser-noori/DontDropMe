@@ -1,14 +1,17 @@
+import type { Pinch } from '../shared/escape';
 import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
 import type { Point } from '../game/HandPlatform';
 
 /** object-fit:contain rectangle in logical space; mirror exactly once here. */
-export function mapVideoPoint(x: number, y: number, videoWidth: number, videoHeight: number): Point {
-  const scale = Math.min(960 / videoWidth, 540 / videoHeight);
+export function mapVideoPoint(x: number, y: number, videoWidth: number, videoHeight: number, zoom = 1): Point {
+  const scale = (zoom > 1 ? Math.max(960 / videoWidth, 540 / videoHeight) : Math.min(960 / videoWidth, 540 / videoHeight)) * zoom;
   const width = videoWidth * scale, height = videoHeight * scale;
   return { x: (960 - width) / 2 + (1 - x) * width, y: (540 - height) / 2 + y * height };
 }
 
 export class HandTracker {
+  // Display an inset of the full sensor frame; inference still receives every pixel.
+  private readonly zoom = 1.35;
   private detector: HandLandmarker | null = null;
   private stream: MediaStream | null = null;
   private timer = 0;
@@ -16,7 +19,12 @@ export class HandTracker {
   private lastVideoTime = -1;
   private interval = 40;
   delegate: 'GPU' | 'CPU' = 'GPU';
-  constructor(private video: HTMLVideoElement, private observe: (point: Point | null) => void, private onError: (message: string) => void, private isPaused: () => boolean) {}
+  constructor(private video: HTMLVideoElement, private observe: (point: Point | null) => void, private onError: (message: string) => void, private isPaused: () => boolean, private observePinch: (pinch: Pinch | null) => void = () => {}) {
+    video.style.objectFit = 'cover';
+    video.style.transform = `scale(${-this.zoom}, ${this.zoom})`;
+    video.style.transformOrigin = '50% 50%';
+  }
+  private map(x: number, y: number) { return mapVideoPoint(x, y, this.video.videoWidth, this.video.videoHeight, this.zoom); }
   async start() {
     this.stop();
     const generation = this.generation;
@@ -54,10 +62,17 @@ export class HandTracker {
         if (hand) {
           let x = 0, y = 0;
           for (const index of [0, 5, 9, 13, 17]) { x += hand[index].x; y += hand[index].y; }
-          const point = mapVideoPoint(x / 5, y / 5, this.video.videoWidth, this.video.videoHeight);
+          const point = this.map(x / 5, y / 5);
           point.y -= 18; // a visible surface just above the center of the palm
           this.observe(point);
-        } else this.observe(null);
+          const thumb = this.map(hand[4].x, hand[4].y);
+          const index = this.map(hand[8].x, hand[8].y);
+          const palmA = this.map(hand[5].x, hand[5].y);
+          const palmB = this.map(hand[17].x, hand[17].y);
+          const wrist = this.map(hand[0].x, hand[0].y), middle = this.map(hand[9].x, hand[9].y);
+          const palmSize = Math.max(1, Math.hypot(palmA.x - palmB.x, palmA.y - palmB.y), Math.hypot(wrist.x - middle.x, wrist.y - middle.y) * .7);
+          this.observePinch({ thumb, index, ratio: Math.hypot(thumb.x - index.x, thumb.y - index.y) / palmSize });
+        } else { this.observe(null); this.observePinch(null); }
       }
       const duration = performance.now() - started;
       if (duration > 24) this.interval = Math.min(100, Math.max(this.interval, duration * 2));
@@ -71,6 +86,6 @@ export class HandTracker {
     this.stream?.getTracks().forEach(track => track.stop()); this.stream = null;
     this.video.pause(); this.video.srcObject = null;
     this.detector?.close(); this.detector = null;
-    this.lastVideoTime = -1; this.interval = 40; this.observe(null);
+    this.lastVideoTime = -1; this.interval = 40; this.observe(null); this.observePinch(null);
   }
 }

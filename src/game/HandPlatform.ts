@@ -44,6 +44,8 @@ export class PalmFilter {
 /** The only final platform position. Displacement is computed once per scene step. */
 export class HandPlatform {
   readonly width = 144;
+  readonly collisionWidth = 22;
+  collisionOffset = 0;
   position: Point = { x: 330, y: 365 };
   delta: Point = { x: 0, y: 0 };
   state: TrackingState = 'inactive';
@@ -52,7 +54,11 @@ export class HandPlatform {
   move(target: Point, state: TrackingState, dt: number) {
     this.state = state;
     let next = state === 'tracked' ? stepToward(this.position, target, 720 * clamp(dt, 0, 0.05)) : this.position;
-    if (this.maze) next = moveConstrained(this.position, next, 72, 38, 10, this.sanctuary);
+    if (this.maze) {
+      const offset = this.collisionOffset;
+      const feet = moveConstrained({ x: this.position.x + offset, y: this.position.y }, { x: next.x + offset, y: next.y }, this.collisionWidth / 2, 36, 0, this.sanctuary);
+      next = { x: feet.x - offset, y: feet.y };
+    }
     this.delta.x = next.x - this.position.x;
     this.delta.y = next.y - this.position.y;
     this.position = next;
@@ -61,6 +67,13 @@ export class HandPlatform {
 }
 
 export type RiderState = 'spawn' | 'boarding' | 'riding' | 'exiting' | 'falling' | 'rescued';
+/** A short climb to a nearby platform, with no route through maze walls. */
+export function canClimbAboard(feet: Point, paddle: HandPlatform) {
+  if (!paddle.active || Math.abs(feet.x - paddle.position.x) > paddle.width / 2 + 20 || Math.abs(feet.y - paddle.position.y) > 34) return false;
+  const target = { ...paddle.position };
+  const reached = moveConstrained(feet, target, 12, 35, 0);
+  return Math.hypot(reached.x - target.x, reached.y - target.y) < 1;
+}
 /** Absolute attachment avoids incremental offset drift and double displacement. */
 export class RiderAttachment {
   offset = 0;
