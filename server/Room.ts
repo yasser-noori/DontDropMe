@@ -158,6 +158,15 @@ export class Room {
     this.feedback = undefined; this.result = undefined; this.rematch = false; this.guess = ''; this.guessLocked = false; this.guessed = false; this.votingOpen = false; this.voteMap.clear();
   }
   private interrogation() { this.phase = 'INTERROGATION'; this.current = this.order[this.turn]; this.timer = 15; this.voteMap.clear(); this.votingOpen = false; this.frame = undefined; }
+  private advanceInterview() {
+    this.currentPlayer()!.delivered = true;
+    this.turn++;
+    if (this.turn === this.order.length) {
+      this.phase = this.guessLocked ? 'DECISIONS' : 'IMPOSTOR_GUESS';
+      if (this.currentPlayer()?.outcome) this.current = undefined;
+      this.timer = this.guessLocked ? 0 : 30; this.votingOpen = false;
+    } else this.interrogation();
+  }
   private finishSurvivorRound() {
     if (!this.active().every(p => p.outcome)) return;
     this.phase = 'ROUND_END'; this.timer = messageDuration('round', continuationText(this.round + 1)) / 1000; this.current = undefined;
@@ -204,8 +213,7 @@ export class Room {
       else if (type === 'clues') { this.require(this.phase === 'ROLE_DELIVERY'); this.phase = 'CLUE_SUBMISSION'; this.timer = 30; }
       else if (type === 'next') {
         this.require(this.phase === 'INTERROGATION' && this.currentPlayer()?.answer && (this.currentPlayer()?.outcome === 'SAVE' || this.frame?.id === this.current && this.frame?.riding && Date.now() - this.frameAt < 1500), 'Ask the player on your hand and collect their answer first.');
-        this.currentPlayer()!.delivered = true;
-        this.turn++; if (this.turn === this.order.length) { this.phase = this.guessLocked ? 'DECISIONS' : 'IMPOSTOR_GUESS'; if (this.currentPlayer()?.outcome) this.current = undefined; this.timer = this.guessLocked ? 0 : 30; this.votingOpen = false; } else this.interrogation();
+        this.advanceInterview();
       } else if (type === 'reopen') { this.require(this.phase === 'INTERROGATION'); this.currentPlayer()!.answer = ''; this.timer = 15; this.paused = false; }
       else if (type === 'voting') { this.require(this.phase === 'INTERROGATION' && this.mode === 'twitch' && this.twitchConnected && this.current && this.spokenClues.has(this.current)); this.votingOpen = !this.votingOpen; }
       else if (type === 'choose') {
@@ -284,14 +292,15 @@ export class Room {
   receiveChat(userId: string, name: string, message: string) {
     if (this.mode !== 'twitch' || !this.twitchConnected) return;
     const command = message.trim().toLowerCase();
-    if (command === '!join' && this.phase === 'LOBBY' && this.joinQueue.size < 200) this.joinQueue.set(userId, clean(name, 30));
+    if (command === '!join' && this.phase === 'LOBBY' && this.joinQueue.size < 200 && this.joinQueue.get(userId) !== clean(name, 30)) { this.joinQueue.set(userId, clean(name, 30)); this.version++; }
     if (command === '!trust' || command === '!drop') this.vote(userId, command === '!trust' ? 'trust' : 'drop');
-    this.version++;
   }
   vote(userId: string, choice: 'trust' | 'drop') {
-    if (!this.votingOpen || !this.twitchConnected || this.phase !== 'INTERROGATION' || this.paused) return;
-    this.voteMap.set(userId, choice); const p = this.currentPlayer()!;
-    p.votes = { trust: [...this.voteMap.values()].filter(v => v === 'trust').length, drop: [...this.voteMap.values()].filter(v => v === 'drop').length }; this.version++;
+    if (!this.votingOpen || !this.twitchConnected || this.phase !== 'INTERROGATION' || this.paused || !this.hostConnected) return;
+    const previous = this.voteMap.get(userId), p = this.currentPlayer();
+    if (!p || p.outcome || previous === choice) return;
+    if (previous) p.votes[previous]--;
+    this.voteMap.set(userId, choice); p.votes[choice]++; this.version++;
   }
   private demoSay(text: string, type: DemoMessage['type'] = 'game', name = 'Game', playerId?: string) {
     this.demoMessages.push({ id: ++this.demoMessageId, name, text, type, playerId, round: this.round });
@@ -361,6 +370,7 @@ export class Room {
     const dt = Math.min(.25, Math.max(0, (now - this.lastTick) / 1000)); this.lastTick = now;
     if (!this.hostConnected || this.paused) { this.captureSince = 0; return; }
     if (this.demo) this.demoStep(now, dt);
+    if (this.mode === 'twitch' && this.phase === 'INTERROGATION' && this.currentPlayer()?.outcome === 'SAVE') { this.advanceInterview(); this.version++; }
     if (this.mode === 'twitch' && this.twitchConnected && this.phase === 'LOBBY') {
       const eligible = this.players.filter(p => p.twitchId && this.joinQueue.has(p.twitchId) && p.connected && p.ready);
       if (eligible.length >= 4) { this.players.forEach(p => { p.selected = false; }); shuffle(eligible).slice(0, 4).forEach(p => { p.selected = true; }); this.start(); this.timer = 8; this.version++; }
@@ -384,7 +394,15 @@ export class Room {
       else if (this.escape === 'active') { this.escapeLeft = Math.max(0, this.escapeLeft - dt); if (!this.escapeLeft) { this.escape = 'timed_out'; this.finish('STREAMER WINS · ESCAPE TIMED OUT'); this.version++; } }
     } else if (['CLUE_SUBMISSION', 'IMPOSTOR_GUESS', 'INTERROGATION'].includes(this.phase) && this.timer > 0) {
       if (this.phase === 'INTERROGATION' && (!this.current || !this.spokenClues.has(this.current) || this.currentPlayer()?.answer || this.frame?.id !== this.current || !this.frame?.riding || !this.frame.active)) return;
-      this.timer = Math.max(0, this.timer - dt); if (!this.timer) { this.paused = true; this.version++; }
+      this.timer = Math.max(0, this.timer - dt);
+      if (!this.timer) {
+        if (this.mode === 'twitch') {
+          // Never strand the minimal live interface behind a hidden resume control.
+          // Clues and answers remain open; an unanswered private word guess is a pass.
+          if (this.phase === 'IMPOSTOR_GUESS') { this.guess = ''; this.guessed = false; this.guessLocked = true; this.phase = 'DECISIONS'; if (this.currentPlayer()?.outcome) this.current = undefined; }
+        } else this.paused = true;
+        this.version++;
+      }
     }
   }
 }

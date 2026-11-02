@@ -65,6 +65,13 @@ async function landing() {
 }
 function renderHost() {
   const current = state.players.find(p => p.id === state.current), phase = state.phase;
+  const connectTwitch = () => button(state.twitchConnected ? 'Reconnect Twitch channel' : 'Connect my Twitch channel', async () => {
+    try {
+      const response = await fetch('/api/twitch/connect', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ room: code }) });
+      const data = await response.json(); if (data.url) location.assign(data.url); else notice(data.error || 'Twitch connection failed.');
+    } catch { notice('Cannot reach the server. Reconnect and try again.'); }
+  });
+  if (state.mode === 'twitch' && phase !== 'LOBBY' && !state.twitchConnected) panel.append(connectTwitch());
   if (!['LOBBY', 'ROLE_DELIVERY', 'REVEAL', 'RESULTS'].includes(phase)) {
     heading(`Round ${state.round} · ${current ? current.name + '’s turn' : 'Waiting for players'}`);
     return;
@@ -74,10 +81,7 @@ function renderHost() {
   if (phase === 'LOBBY') {
     if (state.demo) return;
     if (state.mode === 'local' && !state.demo) panel.append(button('▶ Start solo demo here', () => void act('demo'), state.players.some(p => p.connected)));
-    if (state.mode === 'twitch') panel.append(button('Connect my Twitch channel', async () => {
-      const response = await fetch('/api/twitch/connect', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ room: code }) });
-      const data = await response.json(); if (data.url) location.assign(data.url); else notice(data.error);
-    }));
+    if (state.mode === 'twitch') panel.append(connectTwitch());
     if (host?.links) {
       panel.append(node('p', 'Share each private link with exactly one player. Open four separate tabs for a local rehearsal. Keep this host panel off the broadcast.', 'muted'));
       const links = node('div', '', 'private-links');
@@ -233,7 +237,7 @@ else {
     
     const actor = next.players.find(p => p.id === next.current);
     const turnKey = `${next.round}:${next.current}`;
-    if (kind === 'host' && !next.demo && next.phase === 'INTERROGATION' && actor?.answer && actor.outcome === 'SAVE' && !next.paused && advancingTurn !== turnKey) {
+    if (kind === 'host' && next.mode === 'local' && !next.demo && next.phase === 'INTERROGATION' && actor?.answer && actor.outcome === 'SAVE' && !next.paused && advancingTurn !== turnKey) {
       advancingTurn = turnKey; void act('next').then(ok => { if (!ok) advancingTurn = ''; });
     }
   });
